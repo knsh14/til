@@ -1,0 +1,13 @@
+{
+  "repos": [
+    "commaai/openpilot",
+    "commaai/opendbc",
+    "commaai/panda",
+    "neovim/neovim",
+    "nvim-telescope/telescope.nvim",
+    "ghostty-org/ghostty",
+    "astral-sh/uv",
+    "microsoft/vscode",
+    "qmk/qmk_firmware"
+  ]
+}
