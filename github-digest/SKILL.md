@@ -105,13 +105,20 @@ uv run python <skill-dir>/scripts/fetch_github.py --repo {owner/repo}
 
 以下のフォーマットで Markdown ファイルを生成する:
 
+種別アイコンとして GitHub Octicons の SVG を使う:
+- PR: `![PR](icons/git-pull-request.svg)` (紫 #8250df)
+- Issue: `![Issue](icons/issue-opened.svg)` (緑 #1a7f37)
+
+アイコンファイルは `github-digest/icons/` に配置済み。
+
 ```markdown
 # GitHub ダイジェスト — YYYY-MM-DD
 
 ## 本日のハイライト
 
-1. **[{タイトル(原語)}]({html_url})** ({owner/repo}) — {選定理由を含む一文紹介(日本語)}
-2. ...
+1. ![PR](icons/git-pull-request.svg) **[{タイトル(原語)}]({html_url})** ({owner/repo}) — {選定理由(日本語)}
+2. ![Issue](icons/issue-opened.svg) **[{タイトル(原語)}]({html_url})** ({owner/repo}) — {選定理由(日本語)}
+...
 
 ---
 
@@ -119,8 +126,8 @@ uv run python <skill-dir>/scripts/fetch_github.py --repo {owner/repo}
 
 > {リポジトリの活動傾向(日本語)}
 
-### [{タイトル(原語)}]({html_url}) `#{number}`
-**ステータス:** Open/Closed/Merged | **種別:** Issue/PR | **ラベル:** {labels}
+### ![PR](icons/git-pull-request.svg) [{タイトル(原語)}]({html_url}) `#{number}`
+**ステータス:** Open/Closed/Merged | **ラベル:** {labels}
 
 **概要:** {2〜3文の要約(日本語)}
 
@@ -132,7 +139,7 @@ uv run python <skill-dir>/scripts/fetch_github.py --repo {owner/repo}
 
 ---
 
-### [{次のタイトル}](...) `#{number}` ...
+### ![Issue](icons/issue-opened.svg) [{次のタイトル(Issue)}](...) `#{number}` ...
 
 ## {次のリポジトリ} ...
 ```
