@@ -6,11 +6,12 @@ allowed-tools:
   - "Bash(mkdir -p */github-digest)"
   - Read
   - Write
+  - Agent
 ---
 
 # GitHub リポジトリ・ダイジェスト
 
-監視対象の GitHub リポジトリについて、直近24時間に更新された Issue と PR のアクティビティを取得し、リポジトリごとに日本語で要約して Markdown ファイルとして保存する。
+監視対象の GitHub リポジトリについて、直近24時間に更新された Issue（最新50件）と PR（最新50件）のアクティビティを取得し、リポジトリごとに日本語で要約して Markdown ファイルとして保存する。
 
 ## 設定ファイル
 
@@ -35,7 +36,7 @@ allowed-tools:
 
 ### Step 2: データ取得（リポジトリ並列）
 
-repos.json に含まれる各リポジトリについて **subagent (model: opus) を並列起動** し、それぞれ `fetch_github.py --repo {repo}` を実行して JSON を取得する。各 subagent は1リポジトリ分のデータ取得と JSON パースを担当する。
+repos.json に含まれる各リポジトリについて **subagent (model: opus) を並列起動** し、それぞれ `fetch_github.py --repo {repo}` を実行して JSON を取得する。
 
 ```
 Agent(model=opus, repo="owner/repo1") ──→ JSON1
@@ -43,67 +44,44 @@ Agent(model=opus, repo="owner/repo2") ──→ JSON2   ← 並列実行
 Agent(model=opus, repo="owner/repo3") ──→ JSON3
 ```
 
+> **全ての subagent は `model: "opus"` を指定すること。**
+
 各 subagent は以下を実行する:
 
 ```bash
 uv run python <skill-dir>/scripts/fetch_github.py --repo {owner/repo}
 ```
 
-- 標準出力に JSON が出力される（リポジトリごとにグループ化された Issue/PR データ）
-- 各 Issue/PR には以下が含まれる:
-  - `number`, `title`, `html_url`, `state`, `type` (issue/pull_request)
-  - `body` (全文)
-  - `user` (作成者)
-  - `labels`
-  - `comments` (直近24時間のコメント一覧。各コメントは `user`, `body`(全文), `created_at`)
-  - PRの場合: `pr_details` (merged, additions, deletions, changed_files, base_branch, head_branch)
-  - PRの場合: `files` (変更ファイル一覧)、`reviews`、`review_comments`
-- GitHub API のレート制限に配慮し、リポジトリ間に1秒の待機が入る
+- リポジトリあたり Issue 最大50件、PR 最大50件を取得（updated_at 降順）
+- 各 Issue/PR には title, body, comments, labels, state が含まれる
+- PR にはさらに pr_details (merged, additions, deletions), files, reviews が含まれる
 - エラーが発生したリポジトリは `error` フィールドに記録される
 
-### Step 3: 日本語サマリー生成（Issue/PR 並列）
+### Step 3: サマリー生成・構成・保存
 
-各リポジトリ内の Issue/PR について **subagent (model: opus) を並列起動** し、それぞれ1件ずつ日本語サマリーを生成する。
+全リポジトリの JSON データを統合し、以下を一括で生成する:
 
-各 subagent は以下を出力する:
+1. **各 Issue/PR の日本語サマリー** — 以下の項目を含む:
+   - タイトル（原語のまま）
+   - 概要（2〜3文、日本語）
+   - 直近のアクティビティ（コメント・レビューのやり取り要約）
+   - 変更ファイル概要（PR のみ）
+   - ステータスと次のアクション
 
-1. **タイトル** — 原題をそのまま保持（原語のまま）
-2. **概要**（日本語） — 2〜3文でこの Issue/PR が何を扱っているか簡潔にまとめる
-3. **直近のアクティビティ**（日本語） — コメント・レビューで誰が何を議論したかの要約。議論のポイント、主要な指摘や提案を具体的に書く
-4. **変更ファイル概要**（PRのみ、日本語） — どのファイル/モジュールが影響を受けるか、追加・削除行数
-5. **現在のステータスと次のアクション**（日本語） — open/closed/merged の状態と、次に何が必要か
+2. **リポジトリごとの傾向** — 導入文1〜2文
 
-要約を作る際の注意点:
-- Issue/PR の body とコメントの内容に忠実に書く。推測や外部知識で補わない
+3. **ハイライトセクション** — 全リポジトリから注目アクティビティを3〜5件選定。選定基準:
+   - 活発な議論（コメント数が多い）
+   - 大きな機能追加やブレーキングチェンジ
+   - セキュリティやパフォーマンスへの影響
+   - マイルストーンやリリースに関連
+
+要約の注意点:
+- body とコメントの内容に忠実に書く。推測や外部知識で補わない
 - 技術用語・固有名詞はそのまま使う
-- コメントが0件の場合は「直近24時間のコメントなし」と記載する
+- コメントが0件の場合は「直近24時間のコメントなし」と記載
 
-### Step 4: 校正（Issue/PR 並列）
-
-生成された各サマリーについて **subagent (model: opus) を並列起動** し、校正を行う:
-- 日本語の自然さ・可読性
-- 事実関係の正確性（元データとの整合）
-- 誤字脱字
-
-校正後、全サマリーを統合して用語の表記統一を確認する。
-
-### Step 5: 構成・編集（リポジトリ並列）
-
-各リポジトリのセクションを **subagent (model: opus) で並列生成** する:
-- リポジトリごとの傾向（導入文1〜2文）
-- 更新日時順に並べ替え（最新の更新が上）
-
-統合後、ハイライトセクション（注目アクティビティ 3〜5件）を作成する。選定基準:
-- 活発な議論が行われている（コメント数が多い）
-- 大きな機能追加やブレーキングチェンジに関わる
-- セキュリティやパフォーマンスに影響する
-- マイルストーンやリリースに関連する
-
-> **注: 全ての subagent は `model: "opus"` (Opus 4.6, 1M context) を使用する。**
-
-### Step 6: Markdown ファイルの生成と保存
-
-以下のフォーマットで Markdown ファイルを生成する:
+### Step 4: Markdown ファイルの保存
 
 種別アイコンとして GitHub Octicons の SVG を使う:
 - PR: `![PR](icons/git-pull-request.svg)` (紫 #8250df)
@@ -139,15 +117,24 @@ uv run python <skill-dir>/scripts/fetch_github.py --repo {owner/repo}
 
 ---
 
-### ![Issue](icons/issue-opened.svg) [{次のタイトル(Issue)}](...) `#{number}` ...
+### ![Issue](icons/issue-opened.svg) [{タイトル(原語)}]({html_url}) `#{number}`
+**ステータス:** Open/Closed | **ラベル:** {labels}
+
+**概要:** {2〜3文の要約(日本語)}
+
+**直近のアクティビティ:** {コメント・レビューの要約(日本語)}
+
+**次のアクション:** {必要な対応(日本語)}
+
+---
 
 ## {次のリポジトリ} ...
 ```
 
-保存先: リポジトリの `github-digest/YYYY-MM-DD.md`
+保存先: `github-digest/YYYY-MM-DD.md`
 - 同名ファイルが既にある場合は上書きする
 
-### Step 7: 完了報告
+### Step 5: 完了報告
 
 生成が完了したら、以下を報告する:
 - 保存したファイルパス

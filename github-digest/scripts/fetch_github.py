@@ -18,6 +18,15 @@ from datetime import datetime, timezone, timedelta
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+MAX_ISSUES = 50
+MAX_PRS = 50
+MAX_COMMENTS_PAGES = 3  # max pages of comments to fetch (300 comments)
+
+
+# ---------------------------------------------------------------------------
 # gh CLI helpers
 # ---------------------------------------------------------------------------
 
@@ -98,10 +107,6 @@ def get_since_timestamp() -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-MAX_ISSUES = 50
-MAX_PRS = 50
-
-
 def fetch_issues_and_prs(repo: str, since: str) -> list[dict]:
     """Fetch issues and PRs updated since the given timestamp.
 
@@ -134,12 +139,20 @@ def fetch_issues_and_prs(repo: str, since: str) -> list[dict]:
 
 
 def fetch_comments(repo: str, since: str) -> list[dict]:
-    """Fetch all issue comments since the given timestamp."""
-    endpoint = (
-        f"/repos/{repo}/issues/comments"
-        f"?sort=created&direction=asc&per_page=100&since={since}"
-    )
-    return run_gh_api_paginated(endpoint)
+    """Fetch recent issue comments with page limit."""
+    all_comments: list[dict] = []
+    for page in range(1, MAX_COMMENTS_PAGES + 1):
+        endpoint = (
+            f"/repos/{repo}/issues/comments"
+            f"?sort=created&direction=desc&per_page=100&since={since}&page={page}"
+        )
+        batch = run_gh_api(endpoint)
+        if not batch:
+            break
+        all_comments.extend(batch)
+        if len(batch) < 100:
+            break
+    return all_comments
 
 
 def fetch_pr_details(repo: str, number: int) -> dict | None:
@@ -148,20 +161,13 @@ def fetch_pr_details(repo: str, number: int) -> dict | None:
 
 
 def fetch_pr_files(repo: str, number: int) -> list:
-    """Fetch changed files for a PR."""
-    return run_gh_api_paginated(f"/repos/{repo}/pulls/{number}/files?per_page=100")
+    """Fetch changed files for a PR (first page only, max 100)."""
+    return run_gh_api(f"/repos/{repo}/pulls/{number}/files?per_page=100") or []
 
 
 def fetch_pr_reviews(repo: str, number: int) -> list:
-    """Fetch reviews for a PR."""
-    return run_gh_api_paginated(f"/repos/{repo}/pulls/{number}/reviews?per_page=100")
-
-
-def fetch_pr_review_comments(repo: str, number: int, since: str) -> list:
-    """Fetch inline review comments for a PR since the given timestamp."""
-    return run_gh_api_paginated(
-        f"/repos/{repo}/pulls/{number}/comments?per_page=100&since={since}"
-    )
+    """Fetch reviews for a PR (first page only)."""
+    return run_gh_api(f"/repos/{repo}/pulls/{number}/reviews?per_page=100") or []
 
 
 def fetch_repo(repo: str, since: str) -> dict:
@@ -182,11 +188,10 @@ def fetch_repo(repo: str, since: str) -> dict:
         if item.get("updated_at", "") >= since
     ]
 
-    # 2. Get all comments from the last 24h and group by issue number
+    # 2. Get comments from the last 24h and group by issue number
     all_comments = fetch_comments(repo, since)
     comments_by_number: dict[int, list] = {}
     for c in all_comments:
-        # Extract issue number from issue_url: ".../issues/123"
         issue_url = c.get("issue_url", "")
         try:
             num = int(issue_url.rstrip("/").rsplit("/", 1)[-1])
@@ -200,6 +205,7 @@ def fetch_repo(repo: str, since: str) -> dict:
 
     # 3. Process each item
     items = []
+    pr_count = 0
     for raw in raw_items:
         number = raw["number"]
         is_pr = "pull_request" in raw
@@ -219,11 +225,13 @@ def fetch_repo(repo: str, since: str) -> dict:
             "pr_details": None,
             "files": None,
             "reviews": None,
-            "review_comments": None,
         }
 
-        # 4. Fetch PR-specific data
+        # 4. Fetch PR-specific data (details + files + reviews, skip review_comments)
         if is_pr:
+            pr_count += 1
+            print(f"  PR {pr_count}: #{number} …", file=sys.stderr, end="\r")
+
             pr = fetch_pr_details(repo, number)
             if pr:
                 item["pr_details"] = {
@@ -235,7 +243,6 @@ def fetch_repo(repo: str, since: str) -> dict:
                     "base_branch": (pr.get("base") or {}).get("ref", ""),
                     "head_branch": (pr.get("head") or {}).get("ref", ""),
                 }
-                # Normalize state: merged PRs show as "merged"
                 if pr.get("merged"):
                     item["state"] = "merged"
 
@@ -259,23 +266,14 @@ def fetch_repo(repo: str, since: str) -> dict:
                 for r in fetch_pr_reviews(repo, number)
             ]
 
-            item["review_comments"] = [
-                {
-                    "user": (rc.get("user") or {}).get("login", "unknown"),
-                    "path": rc.get("path", ""),
-                    "body": rc.get("body", "") or "",
-                    "created_at": rc.get("created_at", ""),
-                }
-                for rc in fetch_pr_review_comments(repo, number, since)
-            ]
-
         items.append(item)
 
     # Sort by updated_at descending
     items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
 
-    print(f"  {repo}: {len(items)} items ({sum(1 for i in items if i['type'] == 'pull_request')} PRs, "
-          f"{sum(1 for i in items if i['type'] == 'issue')} issues)", file=sys.stderr)
+    issue_count = sum(1 for i in items if i["type"] == "issue")
+    pr_total = sum(1 for i in items if i["type"] == "pull_request")
+    print(f"  {repo}: {len(items)} items ({pr_total} PRs, {issue_count} issues)", file=sys.stderr)
 
     return {"items": items, "error": None}
 

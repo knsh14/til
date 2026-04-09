@@ -1,0 +1,22 @@
+{
+  "top_level": ["cs", "math", "physics", "stat", "eess", "q-bio", "q-fin", "econ"],
+  "subcategories": ["cs.CV", "cs.RO", "cs.AI", "cs.LG", "cs.SY", "stat.ML", "stat.AP", "stat.ME"],
+  "labels": {
+    "cs": "Computer Science",
+    "math": "Mathematics",
+    "physics": "Physics",
+    "stat": "Statistics",
+    "eess": "Electrical Engineering and Systems Science",
+    "q-bio": "Quantitative Biology",
+    "q-fin": "Quantitative Finance",
+    "econ": "Economics",
+    "cs.CV": "CS - Computer Vision and Pattern Recognition",
+    "cs.RO": "CS - Robotics",
+    "cs.AI": "CS - Artificial Intelligence",
+    "cs.LG": "CS - Machine Learning",
+    "cs.SY": "CS - Systems and Control",
+    "stat.ML": "Stat - Machine Learning",
+    "stat.AP": "Stat - Applications",
+    "stat.ME": "Stat - Methodology"
+  }
+}
