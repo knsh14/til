@@ -39,21 +39,21 @@ DEFAULT_CATEGORIES = {
     "subcategories": ["cs.CV", "cs.RO", "cs.AI", "cs.LG", "cs.SY", "stat.ML", "stat.AP", "stat.ME"],
     "labels": {
         "cs": "Computer Science",
-        "math": "Mathematics",
-        "physics": "Physics",
-        "stat": "Statistics",
-        "eess": "Electrical Engineering and Systems Science",
-        "q-bio": "Quantitative Biology",
-        "q-fin": "Quantitative Finance",
-        "econ": "Economics",
         "cs.CV": "CS - Computer Vision and Pattern Recognition",
         "cs.RO": "CS - Robotics",
         "cs.AI": "CS - Artificial Intelligence",
         "cs.LG": "CS - Machine Learning",
         "cs.SY": "CS - Systems and Control",
+        "math": "Mathematics",
+        "physics": "Physics",
+        "stat": "Statistics",
         "stat.ML": "Stat - Machine Learning",
         "stat.AP": "Stat - Applications",
         "stat.ME": "Stat - Methodology",
+        "eess": "Electrical Engineering and Systems Science",
+        "q-bio": "Quantitative Biology",
+        "q-fin": "Quantitative Finance",
+        "econ": "Economics",
     },
 }
 
@@ -225,12 +225,24 @@ def main() -> None:
         sys.exit(1)
 
     results: dict[str, dict] = {}
+    seen_links: set[str] = set()
     for i, cat in enumerate(categories):
         print(f"Fetching {cat} … ({i + 1}/{len(categories)})", file=sys.stderr)
         papers = fetch_category(cat)
+
+        # Drop papers already emitted for an earlier category so subcategory
+        # digests only cover papers not in their parent category.
+        unique_papers = []
+        for p in papers:
+            link = p.get("link", "")
+            if not link or link in seen_links:
+                continue
+            seen_links.add(link)
+            unique_papers.append(p)
+
         results[cat] = {
             "label": labels.get(cat, cat),
-            "papers": papers,
+            "papers": unique_papers,
         }
         if i < len(categories) - 1:
             time.sleep(DELAY_SECONDS)
